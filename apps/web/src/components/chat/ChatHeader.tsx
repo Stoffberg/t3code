@@ -9,14 +9,13 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { PanelBottomIcon, PanelRightIcon } from "lucide-react";
+import { DiffIcon, TerminalSquareIcon } from "lucide-react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
-import { usePrimaryEnvironmentId } from "../../environments/primary";
-import { shortcutLabelForCommand } from "../../keybindings";
+import { useWebPrimaryEnvironment } from "../../connection/useWebEnvironments";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -24,6 +23,7 @@ interface ChatHeaderProps {
   draftId?: DraftId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
+  isGitRepo: boolean;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
@@ -31,15 +31,16 @@ interface ChatHeaderProps {
   availableEditors: ReadonlyArray<EditorId>;
   terminalAvailable: boolean;
   terminalOpen: boolean;
-  rightPanelAvailable: boolean;
-  rightPanelOpen: boolean;
+  terminalToggleShortcutLabel: string | null;
+  diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
+  diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
-  onToggleRightPanel: () => void;
+  onToggleDiff: () => void;
 }
 
 export function shouldShowOpenInPicker(input: {
@@ -60,6 +61,7 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   activeProjectName,
+  isGitRepo,
   openInCwd,
   activeProjectScripts,
   preferredScriptId,
@@ -67,24 +69,23 @@ export const ChatHeader = memo(function ChatHeader({
   availableEditors,
   terminalAvailable,
   terminalOpen,
-  rightPanelAvailable,
-  rightPanelOpen,
+  terminalToggleShortcutLabel,
+  diffToggleShortcutLabel,
   gitCwd,
+  diffOpen,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
   onToggleTerminal,
-  onToggleRightPanel,
+  onToggleDiff,
 }: ChatHeaderProps) {
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const primaryEnvironmentId = useWebPrimaryEnvironment()?.environmentId ?? null;
   const showOpenInPicker = shouldShowOpenInPicker({
     activeProjectName,
     activeThreadEnvironmentId,
     primaryEnvironmentId,
   });
-  const terminalShortcutLabel = shortcutLabelForCommand(keybindings, "terminal.toggle");
-  const rightPanelShortcutLabel = shortcutLabelForCommand(keybindings, "rightPanel.toggle");
 
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -118,6 +119,7 @@ export const ChatHeader = memo(function ChatHeader({
         )}
         {showOpenInPicker && (
           <OpenInPicker
+            environmentId={activeThreadEnvironmentId}
             keybindings={keybindings}
             availableEditors={availableEditors}
             openInCwd={openInCwd}
@@ -142,14 +144,16 @@ export const ChatHeader = memo(function ChatHeader({
                 size="xs"
                 disabled={!terminalAvailable}
               >
-                <PanelBottomIcon className="size-3.5" />
+                <TerminalSquareIcon className="size-3" />
               </Toggle>
             }
           />
           <TooltipPopup side="bottom">
-            {terminalAvailable
-              ? `Toggle terminal drawer${terminalShortcutLabel ? ` (${terminalShortcutLabel})` : ""}`
-              : "Terminal drawer is unavailable"}
+            {!terminalAvailable
+              ? "Terminal is unavailable until this thread has an active project."
+              : terminalToggleShortcutLabel
+                ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
+                : "Toggle terminal drawer"}
           </TooltipPopup>
         </Tooltip>
         <Tooltip>
@@ -157,21 +161,23 @@ export const ChatHeader = memo(function ChatHeader({
             render={
               <Toggle
                 className="shrink-0"
-                pressed={rightPanelOpen}
-                onPressedChange={onToggleRightPanel}
-                aria-label="Toggle right panel"
+                pressed={diffOpen}
+                onPressedChange={onToggleDiff}
+                aria-label="Toggle diff panel"
                 variant="ghost"
                 size="xs"
-                disabled={!rightPanelAvailable}
+                disabled={!isGitRepo && !diffOpen}
               >
-                <PanelRightIcon className="size-3.5" />
+                <DiffIcon className="size-3" />
               </Toggle>
             }
           />
           <TooltipPopup side="bottom">
-            {rightPanelAvailable
-              ? `Toggle right panel${rightPanelShortcutLabel ? ` (${rightPanelShortcutLabel})` : ""}`
-              : "Right panel is unavailable"}
+            {!isGitRepo && !diffOpen
+              ? "Diff panel is unavailable because this project is not a git repository."
+              : diffToggleShortcutLabel
+                ? `Toggle diff panel (${diffToggleShortcutLabel})`
+                : "Toggle diff panel"}
           </TooltipPopup>
         </Tooltip>
       </div>

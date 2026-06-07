@@ -5,7 +5,6 @@ import {
   EventId,
   ORCHESTRATION_WS_METHODS,
   EnvironmentId,
-  type EnvironmentApi,
   type MessageId,
   type OrchestrationReadModel,
   type ProjectId,
@@ -45,16 +44,6 @@ import { render } from "vitest-browser-react";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { useComposerDraftStore, DraftId } from "../composerDraftStore";
 import {
-  __resetEnvironmentApiOverridesForTests,
-  __setEnvironmentApiOverrideForTests,
-} from "../environmentApi";
-import {
-  resetSavedEnvironmentRegistryStoreForTests,
-  resetSavedEnvironmentRuntimeStoreForTests,
-  useSavedEnvironmentRegistryStore,
-  useSavedEnvironmentRuntimeStore,
-} from "../environments/runtime";
-import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   removeInlineTerminalContextPlaceholder,
   type TerminalContextDraft,
@@ -65,7 +54,6 @@ import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
 import { getServerConfig } from "../rpc/serverState";
 import { getRouter } from "../router";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
-import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 import { selectBootstrapCompleteForActiveEnvironment, useStore } from "../store";
 import { terminalSessionManager } from "../terminalSessionState";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
@@ -100,7 +88,6 @@ vi.mock("../lib/vcsStatusState", () => {
   };
 
   return {
-    getVcsStatusDataForTarget: (state: typeof status) => state.data,
     getVcsStatusSnapshot: () => status,
     useVcsStatus: () => status,
     useVcsStatuses: () => new Map(),
@@ -115,7 +102,6 @@ const ARCHIVED_SECONDARY_THREAD_ID = "thread-secondary-project-archived" as Thre
 const PROJECT_ID = "project-1" as ProjectId;
 const SECOND_PROJECT_ID = "project-2" as ProjectId;
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
-const REMOTE_ENVIRONMENT_ID = EnvironmentId.make("environment-remote");
 const THREAD_REF = scopeThreadRef(LOCAL_ENVIRONMENT_ID, THREAD_ID);
 const THREAD_KEY = scopedThreadKey(THREAD_REF);
 const UUID_ROUTE_RE = /^\/draft\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -241,76 +227,6 @@ function createBaseServerConfig(): ServerConfig {
   };
 }
 
-function createMockEnvironmentApi(input: {
-  browse: EnvironmentApi["filesystem"]["browse"];
-  dispatchCommand: EnvironmentApi["orchestration"]["dispatchCommand"];
-}): EnvironmentApi {
-  return {
-    terminal: {} as EnvironmentApi["terminal"],
-    projects: {} as EnvironmentApi["projects"],
-    filesystem: {
-      browse: input.browse,
-    },
-    assets: {
-      createUrl: vi.fn(async ({ resource }) => ({
-        relativeUrl: `/api/assets/test/${encodeURIComponent(
-          resource._tag === "attachment"
-            ? resource.attachmentId
-            : resource._tag === "project-favicon"
-              ? "favicon.svg"
-              : (resource.path.split(/[\\/]/).at(-1) ?? "asset"),
-        )}`,
-        expiresAt: Date.now() + 60_000,
-      })),
-    },
-    sourceControl: {} as EnvironmentApi["sourceControl"],
-    vcs: {} as EnvironmentApi["vcs"],
-    git: {} as EnvironmentApi["git"],
-    review: {} as EnvironmentApi["review"],
-    orchestration: {
-      dispatchCommand: input.dispatchCommand,
-      getTurnDiff: (() => {
-        throw new Error("Not implemented in browser test.");
-      }) as EnvironmentApi["orchestration"]["getTurnDiff"],
-      getFullThreadDiff: (() => {
-        throw new Error("Not implemented in browser test.");
-      }) as EnvironmentApi["orchestration"]["getFullThreadDiff"],
-      getArchivedShellSnapshot: (() => {
-        throw new Error("Not implemented in browser test.");
-      }) as EnvironmentApi["orchestration"]["getArchivedShellSnapshot"],
-      subscribeShell: (() => () => undefined) as EnvironmentApi["orchestration"]["subscribeShell"],
-      subscribeThread: (() => () =>
-        undefined) as EnvironmentApi["orchestration"]["subscribeThread"],
-    },
-    preview: {
-      open: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      navigate: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      refresh: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      close: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      list: () => Promise.resolve({ sessions: [] }),
-      reportStatus: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      automation: {
-        connect: () => () => undefined,
-        respond: () => Promise.resolve(),
-        reportOwner: () => Promise.resolve(),
-        clearOwner: () => Promise.resolve(),
-      },
-      onEvent: () => () => undefined,
-      subscribePorts: () => () => undefined,
-    } as EnvironmentApi["preview"],
-  };
-}
-
 function createUserMessage(options: {
   id: MessageId;
   text: string;
@@ -386,6 +302,7 @@ function createSnapshotForTargetUser(options: {
             name: `attachment-${attachmentIndex + 1}.png`,
             mimeType: "image/png",
             sizeBytes: 128,
+            previewUrl: `/attachments/attachment-${attachmentIndex + 1}`,
           }))
         : undefined;
 
@@ -1165,13 +1082,14 @@ const worker = setupWorker(
     });
   }),
   ...createAuthenticatedSessionHandlers(() => fixture.serverConfig.auth),
-  http.get("*/api/assets/test/:assetName", () =>
+  http.get("*/attachments/:attachmentId", () =>
     HttpResponse.text(ATTACHMENT_SVG, {
       headers: {
         "Content-Type": "image/svg+xml",
       },
     }),
   ),
+  http.get("*/api/project-favicon", () => new HttpResponse(null, { status: 204 })),
 );
 
 async function nextFrame(): Promise<void> {
@@ -1546,18 +1464,6 @@ function dispatchChatNewShortcut(): void {
   );
 }
 
-function dispatchConfiguredDiffToggleShortcut(): void {
-  window.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "g",
-      shiftKey: true,
-      altKey: true,
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
-}
-
 function releaseModShortcut(key?: string): void {
   window.dispatchEvent(
     new KeyboardEvent("keyup", {
@@ -1797,9 +1703,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     document.body.innerHTML = "";
     wsRequests.length = 0;
     customWsRpcResolver = null;
-    __resetEnvironmentApiOverridesForTests();
-    resetSavedEnvironmentRegistryStoreForTests();
-    resetSavedEnvironmentRuntimeStoreForTests();
     Reflect.deleteProperty(window, "desktopBridge");
     useComposerDraftStore.setState({
       draftsByThreadKey: {},
@@ -1825,8 +1728,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useTerminalUiStateStore.setState({
       terminalUiStateByThreadKey: {},
     });
-    useRightPanelStore.persist.clearStorage();
-    useRightPanelStore.setState({ byThreadKey: {} });
   });
 
   afterEach(() => {
@@ -2080,12 +1981,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const terminalToggle = await waitForElement(
+      const toggle = await waitForElement(
         () =>
           document.querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]'),
         "Unable to find terminal drawer toggle.",
       );
-      terminalToggle.click();
+      toggle.click();
 
       await vi.waitFor(
         () => {
@@ -2098,131 +1999,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
             terminalId: DEFAULT_TERMINAL_ID,
             cwd: "/repo/project",
           });
-          expect(
-            selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF)
-              .isOpen,
-          ).toBe(false);
         },
         { timeout: 8_000, interval: 16 },
       );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("keeps multiple terminal panel surfaces separate from the bottom drawer", async () => {
-    const mounted = await mountChatView({
-      viewport: WIDE_FOOTER_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-open-inline-terminal-panel" as MessageId,
-        targetText: "open inline terminal panel",
-      }),
-    });
-
-    try {
-      const rightPanelToggle = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Toggle right panel"]'),
-        "Unable to find right panel toggle.",
-      );
-      rightPanelToggle.click();
-
-      const addSurface = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Add panel surface"]'),
-        "Unable to find add panel surface button.",
-      );
-      expect(document.body.textContent).toContain("Open a surface");
-      expect(
-        selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
-      ).toEqual({
-        isOpen: true,
-        activeSurfaceId: null,
-        surfaces: [],
-      });
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.terminalOpen)).toBe(false);
-
-      addSurface.click();
-
-      const terminalItem = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
-            (item) => item.textContent?.trim() === "Terminal",
-          ) ?? null,
-        "Unable to find Terminal panel menu item.",
-      );
-      terminalItem.click();
-
-      await vi.waitFor(() => {
-        expect(
-          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF)
-            .surfaces.filter((surface) => surface.kind === "terminal")
-            .map((surface) => surface.resourceId),
-        ).toEqual(["term-1"]);
-      });
-
-      addSurface.click();
-      const secondTerminalItem = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
-            (item) => item.textContent?.trim() === "Terminal",
-          ) ?? null,
-        "Unable to find Terminal panel menu item.",
-      );
-      secondTerminalItem.click();
-
-      await vi.waitFor(
-        () => {
-          expect(
-            selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF)
-              .surfaces.filter((surface) => surface.kind === "terminal")
-              .map((surface) => surface.resourceId),
-          ).toEqual(["term-1", "term-2"]);
-          expect(
-            document.querySelector('[data-preview-panel-mode="inline"] .thread-terminal-drawer'),
-          ).not.toBeNull();
-          expect(
-            wsRequests
-              .filter((request) => request._tag === WS_METHODS.terminalOpen)
-              .map((request) => ("terminalId" in request ? request.terminalId : null)),
-          ).toEqual(expect.arrayContaining(["term-1", "term-2"]));
-          const attachRequest = wsRequests.find(
-            (request) =>
-              request._tag === WS_METHODS.terminalAttach &&
-              "terminalId" in request &&
-              request.terminalId === "term-2",
-          );
-          expect(attachRequest).toMatchObject({
-            _tag: WS_METHODS.terminalAttach,
-            threadId: THREAD_ID,
-            terminalId: "term-2",
-            cwd: "/repo/project",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const drawerToggle = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]'),
-        "Unable to find terminal drawer toggle.",
-      );
-      drawerToggle.click();
-
-      await vi.waitFor(() => {
-        expect(
-          useTerminalUiStateStore.getState().terminalUiStateByThreadKey[THREAD_KEY],
-        ).toMatchObject({
-          terminalOpen: true,
-          terminalIds: ["term-3"],
-        });
-        expect(
-          wsRequests.some(
-            (request) =>
-              request._tag === WS_METHODS.terminalAttach &&
-              "terminalId" in request &&
-              request.terminalId === "term-3",
-          ),
-        ).toBe(true);
-      });
     } finally {
       await mounted.cleanup();
     }
@@ -3390,76 +3169,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("uses the configured diff toggle binding without discarding its surface", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-target-diff-hotkey" as MessageId,
-        targetText: "diff hotkey target",
-      }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "diff.toggle",
-              shortcut: {
-                key: "g",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: true,
-                altKey: true,
-                modKey: false,
-              },
-              whenAst: {
-                type: "not",
-                node: { type: "identifier", name: "terminalFocus" },
-              },
-            },
-          ],
-        };
-      },
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      dispatchConfiguredDiffToggleShortcut();
-      await vi.waitFor(() => {
-        expect(
-          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
-        ).toEqual({
-          isOpen: true,
-          activeSurfaceId: "diff",
-          surfaces: [{ id: "diff", kind: "diff" }],
-        });
-      });
-
-      dispatchConfiguredDiffToggleShortcut();
-      await vi.waitFor(() => {
-        expect(
-          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
-        ).toEqual({
-          isOpen: false,
-          activeSurfaceId: "diff",
-          surfaces: [{ id: "diff", kind: "diff" }],
-        });
-      });
-
-      dispatchConfiguredDiffToggleShortcut();
-      await vi.waitFor(() => {
-        expect(
-          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
-        ).toEqual({
-          isOpen: true,
-          activeSurfaceId: "diff",
-          surfaces: [{ id: "diff", kind: "diff" }],
-        });
-      });
     } finally {
       await mounted.cleanup();
     }
@@ -5504,132 +5213,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           });
         },
         { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("selects an environment before browsing when multiple environments are available", async () => {
-    const remoteBrowseMock = vi.fn(async ({ partialPath }: { partialPath: string }) => {
-      if (partialPath === "~/workspaces/") {
-        return {
-          parentPath: "~/workspaces/",
-          entries: [{ name: "codething", fullPath: "~/workspaces/codething" }],
-        };
-      }
-
-      return {
-        parentPath: "~/",
-        entries: [{ name: "workspaces", fullPath: "~/workspaces" }],
-      };
-    });
-    const remoteDispatchMock = vi.fn(async () => ({
-      sequence: fixture.snapshot.snapshotSequence + 1,
-    }));
-
-    __setEnvironmentApiOverrideForTests(
-      REMOTE_ENVIRONMENT_ID,
-      createMockEnvironmentApi({
-        browse: remoteBrowseMock,
-        dispatchCommand: remoteDispatchMock,
-      }),
-    );
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-command-palette-add-project-multi-env" as MessageId,
-        targetText: "command palette add project multi env",
-      }),
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      useSavedEnvironmentRegistryStore.getState().upsert({
-        environmentId: REMOTE_ENVIRONMENT_ID,
-        label: "Staging",
-        httpBaseUrl: "https://staging.example.test",
-        wsBaseUrl: "wss://staging.example.test/ws",
-        createdAt: NOW_ISO,
-        lastConnectedAt: NOW_ISO,
-      });
-      useSavedEnvironmentRuntimeStore.getState().patch(REMOTE_ENVIRONMENT_ID, {
-        connectionState: "connected",
-        authState: "authenticated",
-        descriptor: {
-          ...fixture.serverConfig.environment,
-          environmentId: REMOTE_ENVIRONMENT_ID,
-          label: "Staging",
-        },
-        serverConfig: {
-          ...fixture.serverConfig,
-          environment: {
-            ...fixture.serverConfig.environment,
-            environmentId: REMOTE_ENVIRONMENT_ID,
-            label: "Staging",
-          },
-          settings: {
-            ...fixture.serverConfig.settings,
-            addProjectBaseDirectory: "~/workspaces",
-          },
-        },
-        connectedAt: NOW_ISO,
-      });
-
-      const palette = page.getByTestId("command-palette");
-      await openCommandPaletteFromTrigger();
-
-      await expect.element(palette).toBeInTheDocument();
-      await palette.getByText("Add project", { exact: true }).click();
-      await expect.element(palette.getByText("Environments", { exact: true })).toBeInTheDocument();
-      await expect
-        .element(palette.getByText("This device", { exact: true }).first())
-        .toBeInTheDocument();
-      await palette.getByText("Staging", { exact: true }).click();
-      await palette.getByText("Local folder", { exact: true }).click();
-
-      const browseInput = await waitForCommandPaletteInput(ADD_PROJECT_SUBMENU_PLACEHOLDER);
-      await expect.element(browseInput).toHaveValue("~/workspaces/");
-
-      await vi.waitFor(
-        () => {
-          expect(remoteBrowseMock).toHaveBeenCalledWith({ partialPath: "~/workspaces/" });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await page.getByPlaceholder(ADD_PROJECT_SUBMENU_PLACEHOLDER).fill("~/workspaces/");
-      await vi.waitFor(
-        () => {
-          expect(remoteBrowseMock).toHaveBeenCalledWith({ partialPath: "~/workspaces/" });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      await expect.element(palette.getByText("codething", { exact: true })).toBeInTheDocument();
-      await expect
-        .element(palette.getByRole("button", { name: "Add (Enter)" }))
-        .toBeInTheDocument();
-
-      await dispatchInputKey(browseInput, { key: "Enter" });
-
-      await vi.waitFor(
-        () => {
-          expect(remoteDispatchMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-              type: "project.create",
-              workspaceRoot: "~/workspaces",
-              title: "workspaces",
-            }),
-          );
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread after adding a remote project.",
       );
     } finally {
       await mounted.cleanup();
