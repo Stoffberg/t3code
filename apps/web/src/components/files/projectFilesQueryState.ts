@@ -68,7 +68,7 @@ const projectFileQueryAtom = Atom.family((key: string) =>
     }),
   ).pipe(
     Atom.swr({
-      staleTime: PROJECT_QUERY_STALE_TIME_MS,
+      staleTime: 0,
       revalidateOnMount: true,
     }),
     Atom.setIdleTTL(PROJECT_QUERY_IDLE_TTL_MS),

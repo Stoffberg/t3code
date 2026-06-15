@@ -32,6 +32,8 @@ function treePath(entry: ProjectEntry): string {
   return entry.kind === "directory" ? `${entry.path}/` : entry.path;
 }
 
+const EMPTY_ENTRIES: readonly ProjectEntry[] = [];
+
 export default function FileBrowserPanel({
   environmentId,
   cwd,
@@ -40,7 +42,7 @@ export default function FileBrowserPanel({
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
-  const entries = entriesQuery.data?.entries ?? [];
+  const entries = entriesQuery.data?.entries ?? EMPTY_ENTRIES;
   const entryKinds = useMemo(
     () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
     [entries],
