@@ -3067,6 +3067,9 @@ export default function ChatView(props: ChatViewProps) {
         useRightPanelStore.getState().byThreadKey,
         activeThreadRef,
       );
+      if (!nextActiveSurface) {
+        setMaximizedRightPanelThreadKey(null);
+      }
       if (nextActiveSurface?.kind === "preview" && nextActiveSurface.resourceId) {
         usePreviewStateStore.getState().setActiveTab(activeThreadRef, nextActiveSurface.resourceId);
       }

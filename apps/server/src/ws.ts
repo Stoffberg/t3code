@@ -163,6 +163,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.sourceControlCloneRepository, AuthOrchestrationOperateScope],
   [WS_METHODS.sourceControlPublishRepository, AuthOrchestrationOperateScope],
   [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
+  [WS_METHODS.projectsRefreshEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
   [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsWriteFile, AuthOrchestrationOperateScope],
@@ -1184,6 +1185,21 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
                 (cause) =>
                   new ProjectListEntriesError({
                     message: `Failed to list workspace entries: ${cause.detail}`,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsRefreshEntries]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsRefreshEntries,
+            workspaceEntries.invalidate(input.cwd).pipe(
+              Effect.andThen(() => workspaceEntries.list(input)),
+              Effect.mapError(
+                (cause) =>
+                  new ProjectListEntriesError({
+                    message: `Failed to refresh workspace entries: ${cause.detail}`,
                     cause,
                   }),
               ),

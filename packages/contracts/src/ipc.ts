@@ -1115,6 +1115,7 @@ export interface EnvironmentApi {
   };
   projects: {
     listEntries: (input: ProjectListEntriesInput) => Promise<ProjectListEntriesResult>;
+    refreshEntries: (input: ProjectListEntriesInput) => Promise<ProjectListEntriesResult>;
     readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;

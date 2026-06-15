@@ -62,37 +62,44 @@ export default function FileBrowserPanel({
     unsafeCSS: TREE_UNSAFE_CSS,
   });
 
-  const loadEntries = useCallback(() => {
-    const api = readEnvironmentApi(environmentId);
-    requestGenerationRef.current += 1;
-    const generation = requestGenerationRef.current;
-    setIsLoadingEntries(true);
-    setEntriesError(null);
+  const loadEntries = useCallback(
+    (options?: { refresh?: boolean }) => {
+      const api = readEnvironmentApi(environmentId);
+      requestGenerationRef.current += 1;
+      const generation = requestGenerationRef.current;
+      setIsLoadingEntries(true);
+      setEntriesError(null);
 
-    if (!api) {
-      setEntriesError("Environment is not connected.");
-      setIsLoadingEntries(false);
-      return;
-    }
+      if (!api) {
+        setEntriesError("Environment is not connected.");
+        setIsLoadingEntries(false);
+        return;
+      }
 
-    void api.projects.listEntries({ cwd }).then(
-      (result) => {
-        if (generation !== requestGenerationRef.current) return;
-        entryKindsRef.current = new Map(
-          result.entries.map((entry) => [entry.path, entry.kind] as const),
-        );
-        setEntries(result.entries);
-        setIsTruncated(result.truncated);
-        model.resetPaths(result.entries.map(treePath));
-        setIsLoadingEntries(false);
-      },
-      (error: unknown) => {
-        if (generation !== requestGenerationRef.current) return;
-        setEntriesError(error instanceof Error ? error.message : String(error));
-        setIsLoadingEntries(false);
-      },
-    );
-  }, [cwd, environmentId, model]);
+      const request = options?.refresh
+        ? api.projects.refreshEntries({ cwd })
+        : api.projects.listEntries({ cwd });
+
+      void request.then(
+        (result) => {
+          if (generation !== requestGenerationRef.current) return;
+          entryKindsRef.current = new Map(
+            result.entries.map((entry) => [entry.path, entry.kind] as const),
+          );
+          setEntries(result.entries);
+          setIsTruncated(result.truncated);
+          model.resetPaths(result.entries.map(treePath));
+          setIsLoadingEntries(false);
+        },
+        (error: unknown) => {
+          if (generation !== requestGenerationRef.current) return;
+          setEntriesError(error instanceof Error ? error.message : String(error));
+          setIsLoadingEntries(false);
+        },
+      );
+    },
+    [cwd, environmentId, model],
+  );
 
   useEffect(() => {
     loadEntries();
@@ -128,7 +135,7 @@ export default function FileBrowserPanel({
           type="button"
           className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Refresh workspace files"
-          onClick={loadEntries}
+          onClick={() => loadEntries({ refresh: true })}
         >
           <RefreshCw className={cn("size-3.5", isLoadingEntries && "animate-spin")} />
         </button>

@@ -57,6 +57,20 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
             if (fileBytes.includes(0)) {
               throw new Error("Binary files cannot be previewed as text.");
             }
+            if (stat.size > PROJECT_READ_FILE_MAX_BYTES) {
+              const probeSize = 8192;
+              const probeOffset = Math.max(bytesToRead, stat.size - probeSize);
+              const probeBuf = Buffer.alloc(Math.min(probeSize, stat.size - probeOffset));
+              const { bytesRead: probeRead } = await handle.read(
+                probeBuf,
+                0,
+                probeBuf.length,
+                probeOffset,
+              );
+              if (probeBuf.subarray(0, probeRead).includes(0)) {
+                throw new Error("Binary files cannot be previewed as text.");
+              }
+            }
             const contents = new TextDecoder("utf-8").decode(fileBytes);
             return {
               relativePath: target.relativePath,
